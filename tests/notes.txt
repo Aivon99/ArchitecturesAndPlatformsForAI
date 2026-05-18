@@ -1,0 +1,1 @@
+expects Linux OS -> shell script needs LF  otherwise command not found

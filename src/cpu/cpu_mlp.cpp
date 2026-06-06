@@ -1,5 +1,7 @@
 #include "cpu/cpu_mlp.h" 
 #include <cmath>
+#include <cuda_runtime.h> 
+
 
 CPUMlp::CPUMlp(int in_size, int out_size) : input_size(in_size), output_size(out_size) {
     weights.resize(input_size * output_size, 0.01f); // dummy weight init

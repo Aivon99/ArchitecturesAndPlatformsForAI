@@ -40,7 +40,6 @@ add_library(gpu_backend
     src/backend/gpu_tiled_backend.cu
 )
 target_include_directories(gpu_backend PUBLIC include)
-set_target_properties(gpu_backend PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
 target_link_libraries(core_lib PUBLIC cpu_backend gpu_backend)
 

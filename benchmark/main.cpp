@@ -22,7 +22,7 @@ struct Args {
     std::vector<Kernel> kernels   = {Kernel::CPU_NAIVE, Kernel::GPU_NAIVE, Kernel::GPU_TILED};
     std::vector<size_t> batch_sizes = {1, 8, 64, 256, 1024, 4096};
     std::vector<size_t> widths      = {128, 512, 2048};
-    size_t depth   = 4;     // number of Linear layers (all widths x widths)
+    std::vector<size_t> depths      = {1, 2, 4, 8, 16};
     int    repeats = 10;
     int    warmup  = 3;
     std::string out_path = "results/benchmark.csv";
@@ -50,7 +50,7 @@ Args parse_args(int argc, char** argv) {
         } else if (flag == "--warmup") {
             args.warmup = std::stoi(next());
         } else if (flag == "--depth") {
-            args.depth = static_cast<size_t>(std::stoul(next()));
+            args.depths = {static_cast<size_t>(std::stoul(next()))};
         } else if (flag == "--out") {
             args.out_path = next();
         } else if (flag == "--max-batch") {
@@ -171,40 +171,40 @@ int main(int argc, char** argv) {
 
     for (Kernel kernel : args.kernels) {
         for (size_t width : args.widths) {
-            std::vector<size_t> layer_widths(args.depth + 1, width);
-            MLP mlp(layer_widths, kernel);
-
-            // Block shape doesn't depend on B, so one query per (kernel, width)
-            // covers every batch size in the loop below.
             KernelLaunchInfo launch_info = occupancy_for(
                 kernel, /*B=*/1, static_cast<int>(width), static_cast<int>(width));
 
-            for (size_t B : args.batch_sizes) {
-                Tensor x = Tensor::randn({B, width}, 0.f, 1.f, /*seed=*/123,
-                                          device_for(kernel));
+            for (size_t depth : args.depths) {
+                std::vector<size_t> layer_widths(depth + 1, width);
+                MLP mlp(layer_widths, kernel);
 
-                double ms = (kernel == Kernel::CPU_NAIVE)
-                                ? time_forward_cpu_ms(mlp, x, args.warmup, args.repeats)
-                                : time_forward_gpu_ms(mlp, x, args.warmup, args.repeats);
+                for (size_t B : args.batch_sizes) {
+                    Tensor x = Tensor::randn({B, width}, 0.f, 1.f, /*seed=*/123,
+                                              device_for(kernel));
 
-                double seconds   = ms / 1000.0;
-                double throughput = static_cast<double>(B) / seconds;
-                double flops      = flops_for_layers(layer_widths, B);
-                double bytes      = bytes_for_layers(layer_widths, B);
-                double gflops     = flops / seconds / 1e9;
-                double arith_intensity = flops / bytes;
-                double occupancy_pct   = launch_info.occupancy * 100.0;
+                    double ms = (kernel == Kernel::CPU_NAIVE)
+                                    ? time_forward_cpu_ms(mlp, x, args.warmup, args.repeats)
+                                    : time_forward_gpu_ms(mlp, x, args.warmup, args.repeats);
 
-                csv << kernel_name(kernel) << ',' << B << ',' << width << ','
-                    << args.depth << ',' << ms << ',' << throughput << ','
-                    << gflops << ',' << bytes << ',' << arith_intensity << ','
-                    << occupancy_pct << ',' << launch_info.shared_mem_bytes_per_block << '\n';
+                    double seconds   = ms / 1000.0;
+                    double throughput = static_cast<double>(B) / seconds;
+                    double flops      = flops_for_layers(layer_widths, B);
+                    double bytes      = bytes_for_layers(layer_widths, B);
+                    double gflops     = flops / seconds / 1e9;
+                    double arith_intensity = flops / bytes;
+                    double occupancy_pct   = launch_info.occupancy * 100.0;
 
-                std::cout << kernel_name(kernel) << " B=" << B << " d=" << width
-                          << " depth=" << args.depth << " -> " << ms << " ms, "
-                          << throughput << " samples/s, " << gflops << " GFLOP/s, "
-                          << "AI=" << arith_intensity << " FLOP/B, "
-                          << "occ=" << occupancy_pct << "%\n";
+                    csv << kernel_name(kernel) << ',' << B << ',' << width << ','
+                        << depth << ',' << ms << ',' << throughput << ','
+                        << gflops << ',' << bytes << ',' << arith_intensity << ','
+                        << occupancy_pct << ',' << launch_info.shared_mem_bytes_per_block << '\n';
+
+                    std::cout << kernel_name(kernel) << " B=" << B << " d=" << width
+                              << " depth=" << depth << " -> " << ms << " ms, "
+                              << throughput << " samples/s, " << gflops << " GFLOP/s, "
+                              << "AI=" << arith_intensity << " FLOP/B, "
+                              << "occ=" << occupancy_pct << "%\n";
+                }
             }
         }
     }
